@@ -1,0 +1,15 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: tritonnfs
+provisioner: tritonnfs.csi.triton.com
+parameters:
+  # Optional: Comma-separated list of network IDs to connect the NFS volume to
+  # networks: "network-id-1,network-id-2"
+  
+  # Optional: Add tags to volumes with the prefix "tag-"
+  # tag-environment: "production"
+  # tag-owner: "team-name"
+  
+allowVolumeExpansion: true
+reclaimPolicy: Delete
