@@ -40,7 +40,7 @@ spec:
             - name: registration-dir
               mountPath: /registration
         - name: tritonnfs-csi-plugin
-          image: nwilkens/tritonnfs-csi:v0.4.3
+          image: nwilkens/tritonnfs-csi:v0.5.5
           imagePullPolicy: Always
           args:
             - "--endpoint=$(CSI_ENDPOINT)"
