@@ -134,12 +134,20 @@ make test
 make version
 ```
 
+### Version Management
+
+The driver version is maintained in the `VERSION` file at the root of the repository. To update the version:
+
+1. Edit the `VERSION` file with the new version (e.g., `v0.7.0`)
+2. Run `make bump-version` to update all version references in the codebase
+3. Run `make docker-build docker-push` to build and push the new image
+
 ### Building the Container Image
 
 You can build and tag the container image using:
 
 ```bash
-# Build with default version (v0.5.5)
+# Build with the version from VERSION file
 make docker-build
 
 # Build with custom version
@@ -152,7 +160,7 @@ make docker-push REGISTRY=your-registry IMAGE_TAG=your-tag
 Or manually:
 
 ```bash
-docker build --build-arg VERSION=v0.5.5 -t tritonnfs-csi:v0.5.5 .
+docker build --build-arg VERSION=$(cat VERSION) -t tritonnfs-csi:$(cat VERSION) .
 ```
 
 ## Troubleshooting

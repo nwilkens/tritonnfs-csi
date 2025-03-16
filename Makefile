@@ -37,6 +37,11 @@ docker-push: docker-build
 version:
 	@echo $(VERSION)
 
+.PHONY: bump-version
+bump-version:
+	@echo "Updating all version references to $(VERSION)"
+	./update-version.sh
+
 .PHONY: help
 help:
 	@echo "Usage: make [target]"
@@ -48,6 +53,7 @@ help:
 	@echo "  docker-build    Build docker image"
 	@echo "  docker-push     Build and push docker image"
 	@echo "  version         Display the current version"
+	@echo "  bump-version    Update all version references from VERSION file"
 	@echo ""
 	@echo "Variables:"
 	@echo "  VERSION         Version of the driver (default: $(VERSION))"
