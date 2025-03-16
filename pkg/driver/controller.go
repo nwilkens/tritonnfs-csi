@@ -367,9 +367,17 @@ func (d *TritonNFSDriver) ControllerModifyVolume(ctx context.Context, req *csi.C
 
 // Helper function to get the NFS server IP from the volume
 func getVolumeServer(volume *NFSVolume) string {
-	if len(volume.Networks) > 0 {
-		return volume.Networks[0].IP
+	// Extract IP from FileSystemPath
+	if volume.FileSystemPath != "" {
+		// FileSystemPath format is expected to be: "ip_address:/exports/path"
+		parts := strings.Split(volume.FileSystemPath, ":")
+		if len(parts) > 0 {
+			return parts[0]
+		}
 	}
+	
+	// Log a warning if no filesystem path is found
+	logrus.Warnf("No filesystem_path found for volume %s, unable to determine NFS server IP", volume.ID)
 	return ""
 }
 

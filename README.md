@@ -119,10 +119,40 @@ And update the `spec.resources.requests.storage` field to the new size.
 
 ## Building
 
-To build the container image:
+### Building from Source
+
+The project includes a Makefile to simplify building:
 
 ```bash
-docker build -t tritonnfs-csi:latest .
+# Build the binary
+make build
+
+# Run tests
+make test
+
+# Show current version
+make version
+```
+
+### Building the Container Image
+
+You can build and tag the container image using:
+
+```bash
+# Build with default version (v0.5.5)
+make docker-build
+
+# Build with custom version
+make docker-build VERSION=v0.6.0
+
+# Build and push to registry
+make docker-push REGISTRY=your-registry IMAGE_TAG=your-tag
+```
+
+Or manually:
+
+```bash
+docker build --build-arg VERSION=v0.5.5 -t tritonnfs-csi:v0.5.5 .
 ```
 
 ## Troubleshooting

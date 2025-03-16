@@ -15,9 +15,10 @@ import (
 	"k8s.io/mount-utils"
 )
 
-const (
+var (
 	// DriverVersion is the version of the CSI driver
-	DriverVersion = "0.3.7"
+	// This is set via ldflags during build
+	DriverVersion = "v0.5.5" // Default value, will be overridden during build
 )
 
 // TritonNFSDriver implements the CSI driver interface for Triton NFS volumes
@@ -112,7 +113,7 @@ func (d *TritonNFSDriver) Run() error {
 		return err
 	}
 
-	logrus.Infof("Starting Triton NFS CSI driver at %s", d.endpoint)
+	logrus.Infof("Starting Triton NFS CSI driver version %s at %s", DriverVersion, d.endpoint)
 	listener, err := net.Listen(scheme, addr)
 	if err != nil {
 		return err

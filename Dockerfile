@@ -8,7 +8,8 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY pkg/ pkg/
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o tritonnfs-csi cmd/tritonnfs-csi/main.go
+ARG VERSION=v0.5.5
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -ldflags "-X github.com/joyent/tritonnfs-csi/pkg/driver.DriverVersion=${VERSION}" -o tritonnfs-csi cmd/tritonnfs-csi/main.go
 
 FROM debian:bullseye-slim
 WORKDIR /
