@@ -14,6 +14,7 @@ require (
 require (
 	github.com/go-logr/logr v1.3.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/joyent/triton-go/v2 v2.0.0-pre3 // indirect
 	github.com/moby/sys/mountinfo v0.6.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	golang.org/x/crypto v0.21.0 // indirect

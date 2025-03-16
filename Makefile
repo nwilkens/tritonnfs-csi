@@ -1,6 +1,6 @@
 VERSION ?= $(shell cat VERSION)
-REGISTRY ?= joyent
-IMAGE_NAME ?= tritonnfs-csi-driver
+REGISTRY ?= nwilkens
+IMAGE_NAME ?= tritonnfs-csi
 IMAGE_TAG ?= $(VERSION)
 FULL_IMAGE_NAME = $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
@@ -8,7 +8,7 @@ FULL_IMAGE_NAME = $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 GOOS ?= linux
 GOARCH ?= amd64
 BUILD_FLAGS ?= -a
-LDFLAGS ?= -X github.com/joyent/tritonnfs-csi/pkg/driver.DriverVersion=$(VERSION)
+LDFLAGS ?= -X github.com/nwilkens/tritonnfs-csi/pkg/driver.DriverVersion=$(VERSION)
 
 .PHONY: all
 all: build
@@ -56,7 +56,7 @@ help:
 	@echo "  bump-version    Update all version references from VERSION file"
 	@echo ""
 	@echo "Variables:"
-	@echo "  VERSION         Version of the driver (default: $(VERSION))"
+	@echo "  VERSION         Version (default: $(VERSION))"
 	@echo "  REGISTRY        Docker registry to push to (default: $(REGISTRY))"
 	@echo "  IMAGE_NAME      Name of the docker image (default: $(IMAGE_NAME))"
 	@echo "  IMAGE_TAG       Tag of the docker image (default: $(VERSION))"
