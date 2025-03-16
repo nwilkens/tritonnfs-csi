@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"net/url"
 	"strings"
 	"time"
+	"encoding/pem"
 
-	"github.com/joyent/triton-go"
-	"github.com/joyent/triton-go/authentication"
-	"github.com/joyent/triton-go/compute"
+	triton "github.com/joyent/triton-go/v2"
+	"github.com/joyent/triton-go/v2/authentication"
+	"github.com/joyent/triton-go/v2/compute"
 	"github.com/sirupsen/logrus"
 )
 
@@ -27,69 +27,67 @@ type TritonClient struct {
 func NewTritonClient(endpoint, accountID, keyID, keyPath string) (*TritonClient, error) {
 	logrus.Infof("Creating Triton client with endpoint: %s, accountID: %s, keyID: %s, keyPath: %s", endpoint, accountID, keyID, keyPath)
 	
-	// The triton-go library expects a URL parsing to happen to extract the datacenter
-	endpointURL, err := url.Parse(endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse endpoint URL: %v", err)
-	}
-	
-	// Extract datacenter from the URL
-	// Example: if URL is "https://us-central-1.api.mnx.io", datacenter would be "us-central-1"
-	hostParts := strings.Split(endpointURL.Host, ".")
-	var datacenter string
-	if len(hostParts) > 0 {
-		datacenter = hostParts[0]
-	} else {
-		return nil, fmt.Errorf("could not extract datacenter from URL: %s", endpoint)
-	}
-	
-	logrus.Infof("Extracted datacenter from URL: %s", datacenter)
-
 	// Read the SSH private key file
 	privateKeyData, err := ioutil.ReadFile(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %v", err)
 	}
 
-	// Create a new key signer using the updated API
 	// Log the first few characters of the private key for debugging
 	if len(privateKeyData) > 50 {
 		logrus.Infof("Private key starts with: %s", string(privateKeyData[:50]))
 	}
 	
-	// For now, we'll use a dummy signer since we'll actually implement the authentication ourselves
-	signer, err := authentication.NewSSHAgentSigner(authentication.SSHAgentSignerInput{
-		KeyID:       keyID,
-		AccountName: accountID,
-	})
-	
-	// If SSH agent is not available, we'll fall back to our manual authentication
-	if err != nil {
-		logrus.Infof("SSH agent not available: %v, will use manual authentication", err)
-		// Just continue with a nil signer, we'll handle authentication manually in our implementation
-		signer = nil
-		// Don't return an error, we'll handle authentication ourselves
+	// Parse the private key
+	block, _ := pem.Decode(privateKeyData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block containing private key")
 	}
 
-	// Create a Triton client config
-	var signers []authentication.Signer
-	if signer != nil {
-		signers = []authentication.Signer{signer}
+	// Check if it's an encrypted key
+	if block.Headers["Proc-Type"] == "4,ENCRYPTED" {
+		return nil, fmt.Errorf("encrypted private keys are not supported, please decrypt the key first")
 	}
 	
+	// Try to create a private key signer
+	input := authentication.PrivateKeySignerInput{
+		KeyID:              keyID,
+		PrivateKeyMaterial: privateKeyData,
+		AccountName:        accountID,
+	}
+	
+	signer, err := authentication.NewPrivateKeySigner(input)
+	if err != nil {
+		logrus.Errorf("Error creating private key signer: %v", err)
+		
+		// Try a different way of parsing the key - for now just return the error
+		return nil, fmt.Errorf("failed to create private key signer: %v", err)
+	}
+	
+	// Create a Triton client config
 	config := &triton.ClientConfig{
 		TritonURL:   endpoint,
 		AccountName: accountID,
-		Signers:     signers,
+		Signers:     []authentication.Signer{signer},
 	}
 	
+	// Create the compute client
 	computeClient, err := compute.NewClient(config)
 	if err != nil {
-		// If we couldn't create the compute client, log it but continue
-		// We'll fall back to our mock implementation
-		logrus.Infof("Failed to create compute client: %v", err)
+		logrus.Errorf("Failed to create compute client: %v", err)
+		return nil, fmt.Errorf("failed to create compute client: %v", err)
 	}
-
+	
+	// Verify connection with a simple API call
+	logrus.Infof("Testing connection to Triton API")
+	volumes, err := computeClient.Volumes().List(context.Background(), &compute.ListVolumesInput{})
+	if err != nil {
+		logrus.Errorf("Failed to list volumes using triton-go client: %v", err)
+		return nil, fmt.Errorf("failed to connect to Triton API: %v", err)
+	}
+	
+	logrus.Infof("Successfully connected to Triton API, found %d volumes", len(volumes))
+	
 	return &TritonClient{
 		computeClient: computeClient,
 		endpoint:      endpoint,
@@ -122,6 +120,7 @@ type NFSVolume struct {
 	FileSystemPath string            `json:"filesystem_path"` // Added filesystem_path field
 	Created        time.Time         `json:"created"`
 	Tags           map[string]string `json:"tags"`
+	Server         string            `json:"server"`         // Server IP for the NFS volume
 }
 
 // Network represents a network in Triton
@@ -140,17 +139,18 @@ func (c *TritonClient) CreateVolume(ctx context.Context, req *NFSVolumeRequest) 
 		return nil, fmt.Errorf("compute client not initialized")
 	}
 	
-	// Convert size from bytes to gigabytes (Triton expects size in GB)
-	sizeGB := req.Size / (1024 * 1024 * 1024)
-	if req.Size%(1024*1024*1024) > 0 {
-		sizeGB++ // Round up to the next GB
+	// Convert size from bytes to megabytes (Triton expects size in MB)
+	// The error message shows sizes like 10240, 20480, which are in MB
+	sizeMB := req.Size / (1024 * 1024)
+	if req.Size%(1024*1024) > 0 {
+		sizeMB++ // Round up to the next MB
 	}
 	
 	// Create volume input
 	createInput := &compute.CreateVolumeInput{
 		Name: req.Name,
 		Type: req.Type,
-		Size: int64(sizeGB),
+		Size: int64(sizeMB),
 		Tags: req.Tags,
 	}
 	
@@ -188,7 +188,7 @@ func (c *TritonClient) CreateVolume(ctx context.Context, req *NFSVolumeRequest) 
 		Name:           readyVolume.Name,
 		State:          readyVolume.State,
 		Type:           readyVolume.Type,
-		Size:           int64(readyVolume.Size) * 1024 * 1024 * 1024, // Convert GB to bytes
+		Size:           int64(readyVolume.Size) * 1024 * 1024, // Convert MB to bytes
 		MountPoint:     readyVolume.FileSystemPath,
 		FileSystemPath: readyVolume.FileSystemPath, // This contains the full NFS path including IP
 		Created:        time.Now(), // No Created field in compute.Volume
@@ -218,6 +218,14 @@ func (c *TritonClient) GetVolume(ctx context.Context, id string) (*NFSVolume, er
 		return nil, fmt.Errorf("compute client not initialized")
 	}
 	
+	// Kubernetes appends "-id" to volume IDs in certain contexts
+	// Strip it if present to match the format expected by Triton API
+	if strings.HasSuffix(id, "-id") {
+		originalID := id
+		id = strings.TrimSuffix(id, "-id")
+		logrus.Infof("Trimmed '-id' suffix from volume ID: %s → %s", originalID, id)
+	}
+	
 	// Get the volume from Triton
 	volume, err := c.computeClient.Volumes().Get(ctx, &compute.GetVolumeInput{
 		ID: id,
@@ -228,7 +236,11 @@ func (c *TritonClient) GetVolume(ctx context.Context, id string) (*NFSVolume, er
 		return nil, err
 	}
 	
-	// Check if FileSystemPath exists
+	// Check if FileSystemPath exists and dump volume details for debugging
+	logrus.Infof("Volume details for %s: ID=%s, Name=%s, State=%s, Type=%s", 
+		id, volume.ID, volume.Name, volume.State, volume.Type)
+	logrus.Infof("Volume networks for %s: %v", id, volume.Networks)
+	
 	if volume.FileSystemPath == "" {
 		logrus.Warnf("Volume %s has no FileSystemPath", id)
 	} else {
@@ -241,7 +253,7 @@ func (c *TritonClient) GetVolume(ctx context.Context, id string) (*NFSVolume, er
 		Name:           volume.Name,
 		State:          volume.State,
 		Type:           volume.Type,
-		Size:           int64(volume.Size) * 1024 * 1024 * 1024, // Convert GB to bytes
+		Size:           int64(volume.Size) * 1024 * 1024, // Convert MB to bytes
 		MountPoint:     volume.FileSystemPath,
 		FileSystemPath: volume.FileSystemPath, // This contains the full NFS path including IP
 		Created:        time.Now(), // No Created field in compute.Volume
@@ -271,6 +283,14 @@ func (c *TritonClient) DeleteVolume(ctx context.Context, id string) error {
 		return fmt.Errorf("compute client not initialized")
 	}
 	
+	// Kubernetes appends "-id" to volume IDs in certain contexts
+	// Strip it if present to match the format expected by Triton API
+	if strings.HasSuffix(id, "-id") {
+		originalID := id
+		id = strings.TrimSuffix(id, "-id")
+		logrus.Infof("Trimmed '-id' suffix from volume ID: %s → %s", originalID, id)
+	}
+	
 	// Delete the volume using the Triton API
 	err := c.computeClient.Volumes().Delete(ctx, &compute.DeleteVolumeInput{
 		ID: id,
@@ -295,6 +315,14 @@ func (c *TritonClient) ExpandVolume(ctx context.Context, id string, newSize int6
 		return nil, fmt.Errorf("compute client not initialized")
 	}
 	
+	// Kubernetes appends "-id" to volume IDs in certain contexts
+	// Strip it if present to match the format expected by Triton API
+	if strings.HasSuffix(id, "-id") {
+		originalID := id
+		id = strings.TrimSuffix(id, "-id")
+		logrus.Infof("Trimmed '-id' suffix from volume ID: %s → %s", originalID, id)
+	}
+	
 	// First get the current volume
 	currentVolume, err := c.computeClient.Volumes().Get(ctx, &compute.GetVolumeInput{
 		ID: id,
@@ -306,7 +334,7 @@ func (c *TritonClient) ExpandVolume(ctx context.Context, id string, newSize int6
 	}
 	
 	// Check if resizing is needed
-	currentSizeBytes := int64(currentVolume.Size) * 1024 * 1024 * 1024
+	currentSizeBytes := int64(currentVolume.Size) * 1024 * 1024 // Convert MB to bytes
 	if currentSizeBytes >= newSize {
 		logrus.Infof("Volume %s already has sufficient size (%d bytes), no resize needed", 
 			id, currentSizeBytes)
@@ -364,8 +392,9 @@ func (c *TritonClient) ListVolumes(ctx context.Context) ([]*NFSVolume, error) {
 	// Convert to our internal NFSVolume type
 	var volumes []*NFSVolume
 	for _, vol := range tritonVolumes {
-		// Skip non-NFS volumes if there are any
-		if vol.Type != "nfs" && vol.Type != "tritonnfs" {
+		// Skip non-tritonnfs volumes
+		if vol.Type != "tritonnfs" {
+			logrus.Warnf("Skipping volume %s with type %s (only tritonnfs is supported)", vol.ID, vol.Type)
 			continue
 		}
 		
@@ -381,7 +410,7 @@ func (c *TritonClient) ListVolumes(ctx context.Context) ([]*NFSVolume, error) {
 			Name:           vol.Name,
 			State:          vol.State,
 			Type:           vol.Type,
-			Size:           int64(vol.Size) * 1024 * 1024 * 1024, // Convert GB to bytes
+			Size:           int64(vol.Size) * 1024 * 1024, // Convert MB to bytes
 			MountPoint:     vol.FileSystemPath,
 			FileSystemPath: vol.FileSystemPath, // This contains the full NFS path including IP
 			Created:        time.Now(), // No Created field in compute.Volume
@@ -430,6 +459,11 @@ func (c *TritonClient) waitForVolumeReady(ctx context.Context, volumeID string) 
 		
 		// Check if volume is ready
 		if volume.State == "ready" {
+			// Add more debugging for filesystem_path
+			logrus.Infof("Volume %s is ready with FileSystemPath: %s", volumeID, volume.FileSystemPath)
+			if volume.FileSystemPath == "" {
+				logrus.Warnf("Volume %s is ready but has no FileSystemPath", volumeID)
+			}
 			return volume, nil
 		}
 		

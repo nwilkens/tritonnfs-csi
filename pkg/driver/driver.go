@@ -18,7 +18,7 @@ import (
 var (
 	// DriverVersion is the version of the CSI driver
 	// This is set via ldflags during build
-	DriverVersion = "v0.5.5" // Default value, will be overridden during build
+	DriverVersion = "v0.5.6" // Default value, will be overridden during build
 )
 
 // TritonNFSDriver implements the CSI driver interface for Triton NFS volumes
