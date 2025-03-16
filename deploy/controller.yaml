@@ -53,7 +53,7 @@ spec:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
         - name: tritonnfs-csi-plugin
-          image: nwilkens/tritonnfs-csi:v0.5.6
+          image: nwilkens/tritonnfs-csi:v0.5.14
           imagePullPolicy: IfNotPresent
           args:
             - "--endpoint=$(CSI_ENDPOINT)"
